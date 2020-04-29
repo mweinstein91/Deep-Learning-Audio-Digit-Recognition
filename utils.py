@@ -12,7 +12,7 @@ import librosa.display
 from sklearn.model_selection import train_test_split
 import keras
 from keras.models import Sequential
-from keras.layers import Dense, Dropout, Flatten, Conv2D, MaxPooling2D, BatchNormalization
+from keras.layers import Dense, Dropout, Flatten, Conv2D, MaxPooling2D, BatchNormalization, GlobalAveragePooling2D
 from sklearn.metrics import classification_report
 from keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoard
 
@@ -61,13 +61,13 @@ def prepare_data_model(folder):
     X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.25, random_state=1)
 
     print("Creating Model")
-    model = get_simple_cnn_model(input_shape, classes)
+    model = get_cnn_model(input_shape, classes)
 
     return X_train, X_val, X_test, y_train, y_val, y_test, model
 
 
 def generate_wave_graph(filename):
-    file = './recordings/' + '0_jackson_0.wav'
+    file = './recordings/' + filename
 
     with wave.open(file, 'r') as wav_file:
         # Extract Raw Audio from Wav File
@@ -86,19 +86,20 @@ def generate_wave_graph(filename):
 
         # Plot
         plt.figure(1)
-        plt.title('Signal Wave...')
+        plt.title('Signal Wave')
         for channel in channels:
             plt.plot(Time, channel)
+        plt.savefig('images/waveform' + filename + '.png')
         plt.show()
-        plt.savefig('images/waveform.png')
+
 
 def generate_spectogram(filename):
-    sound_info, frame_rate = get_wav_info(filename)
+    sound_info, frame_rate = get_wav_info('./recordings/' + filename)
     pylab.figure(num=None, figsize=(19, 12))
     pylab.subplot(111)
     pylab.title('Spectrogram of %r' % filename)
     pylab.specgram(sound_info, Fs=frame_rate)
-    pylab.savefig('images/spectrogram.png')
+    pylab.savefig('images/spectrogram' + filename + '.png')
     pylab.show()
 
 def get_wav_info(filename):
@@ -109,12 +110,13 @@ def get_wav_info(filename):
     return sound_info, frame_rate
 
 def generate_mfcc_graph(filename):
-    (xf, sr) = librosa.load(filename)
+    (xf, sr) = librosa.load('./recordings/' + filename)
     mfccs = librosa.feature.mfcc(y=xf, sr=sr, n_mfcc=4)
     librosa.display.specshow(mfccs, x_axis='time')
     plt.colorbar()
     plt.tight_layout()
     plt.title('mfcc')
+    plt.savefig('images/mfcc' + filename + '.png')
     plt.show()
 
 def generate_graphs(filename):
@@ -122,31 +124,60 @@ def generate_graphs(filename):
     generate_mfcc_graph(filename)
     generate_spectogram(filename)
 
-def get_simple_cnn_model(input_shape, num_classes):
+def get_cnn_model(input_shape, num_classes, dropout = True, batch_n = True, MaxPooling = True, optimzer = keras.optimizers.Adam() ):
     model = Sequential()
 
     model.add(Conv2D(32, kernel_size=(2, 2), activation='relu', input_shape=input_shape))
-    model.add(BatchNormalization())
+    if batch_n:
+        model.add(BatchNormalization())
+
+    model.add(Conv2D(48, kernel_size=(2, 2), activation='relu'))
+    if batch_n:
+        model.add(BatchNormalization())
 
     model.add(MaxPooling2D(pool_size=(2, 2)))
-    model.add(Dropout(0.25))
+    if dropout:
+        model.add(Dropout(0.25))
 
     model.add(Flatten())
 
     model.add(Dense(64, activation='relu'))
+    if batch_n:
+        model.add(BatchNormalization())
+    if dropout:
+        model.add(Dropout(0.4))
+    model.add(Dense(num_classes, activation='softmax'))
+    model.compile(loss=keras.losses.categorical_crossentropy, optimizer=optimzer, metrics=['accuracy'])
+
+    return model
+
+def get_feedforward_model(input_shape, num_classes):
+    model = Sequential()
+    model.add(Dense(128, activation='relu', input_shape=input_shape))
+    model.add(Flatten())
+    model.add(BatchNormalization())
+    model.add(Dropout(0.25))
+    model.add(Dense(64, activation='relu'))
     model.add(BatchNormalization())
     model.add(Dropout(0.4))
     model.add(Dense(num_classes, activation='softmax'))
-    model.compile(loss=keras.losses.categorical_crossentropy, optimizer=keras.optimizers.Adadelta(), metrics=['accuracy'])
+    model.compile(loss=keras.losses.categorical_crossentropy, optimizer=keras.optimizers.Adadelta(),
+                  metrics=['accuracy'])
 
     return model
+
+def evaluate_model(model, test_X, test_y):
+    model = keras.models.load_model('best_model.h5')
+    print(model.evaluate(test_X, test_y))
+
+
 
 
 if __name__ == '__main__':
      print("Generating Graphs")
-     generate_wave_graph('./recordings/' + '0_jackson_0.wav')
-     generate_spectogram('./recordings/' + '0_jackson_0.wav')
-     generate_mfcc_graph('./recordings/' + '0_jackson_0.wav')
+     generate_wave_graph( '0_jackson_0.wav')
+     generate_spectogram('0_jackson_0.wav')
+     generate_mfcc_graph('0_jackson_0.wav')
 
      print("Done")
      X_train, X_val, X_test, y_train, y_val, y_test, model = prepare_data_model('./recordings/')
@@ -155,16 +186,15 @@ if __name__ == '__main__':
 
      keras_callback = keras.callbacks.TensorBoard(log_dir='./Graph', histogram_freq=1,
                                                   write_graph=True, write_images=True)
-
-     callbacks = [EarlyStopping(monitor='val_loss', patience=2),
+     #EarlyStopping(monitor='val_loss', patience=2),
+     callbacks = [
                   ModelCheckpoint(filepath='best_model.h5', monitor='val_loss', save_best_only=True), TensorBoard(log_dir='./Graph', histogram_freq=1,
                                                   write_graph=False, write_images=False)]
 
-     model.fit(X_train, y_train, batch_size=32, epochs= 5, verbose= 2, validation_data = [X_val, y_val],
+     model.fit(X_train, y_train, batch_size=250, epochs= 50, verbose= 2, validation_data = [X_val, y_val],
                    callbacks=callbacks)
 
-     predictions = keras.models.load_model('best_model.h5')
-     print(classification_report(y_test, to_categorical(predictions)))
+     evaluate_model('best_model.h5', X_test, y_test)
 
 
 
