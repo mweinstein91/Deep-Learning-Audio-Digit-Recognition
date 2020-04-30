@@ -6,16 +6,23 @@ from keras.utils import to_categorical
 import matplotlib.pyplot as plt
 import wave
 import pylab
-from matplotlib import cm
-import pandas as pd
 import librosa.display
 from sklearn.model_selection import train_test_split
 import keras
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Flatten, Conv2D, MaxPooling2D, BatchNormalization, GlobalAveragePooling2D
+from keras.callbacks import ModelCheckpoint, TensorBoard
+from keras.utils import plot_model
 from sklearn.metrics import classification_report
-from keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoard
 
+
+class LossHistory(keras.callbacks.Callback):
+    def on_train_begin(self, logs={}):
+        self.losses = []
+
+    def on_batch_end(self, batch, logs={}):
+        batch_loss = logs.get('loss')
+        self.losses.append(batch_loss)
 
 def wav_to_mfcc(file_path, max_pad_len=20):
     wave, sr = librosa.load(file_path, mono=True, sr = None)
@@ -42,7 +49,7 @@ def get_data(folder):
     #print(np.array([np.hstack(i) for i in mfccs]))
     return np.asarray(mfccs), to_categorical(labels)
 
-def prepare_data_model(folder):
+def prepare_data(folder):
     print("Preparing Data")
     mfccs, labels = get_data(folder)
 
@@ -55,16 +62,29 @@ def prepare_data_model(folder):
     X = X.reshape((mfccs.shape[0], dim_1, dim_2, channels))
     y = labels
 
-    input_shape = (dim_1, dim_2, channels)
+    input_output = [(dim_1, dim_2, channels), classes]
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=1)
     X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.25, random_state=1)
 
+
+
+    return X_train, X_val, X_test, y_train, y_val, y_test, input_output
+
+def prepare_model(input_output, modeltype = 'CNN', dropout = True, batch_n = True, maxpooling = True, optimizer = keras.optimizers.Adam()):
     print("Creating Model")
-    model = get_cnn_model(input_shape, classes)
+    if modeltype == 'CNN':
+        model = get_cnn_model(input_output[0], input_output[1], dropout, batch_n, maxpooling, optimizer)
+        print(model.summary())
+        plot_model(model, to_file='images/CNN_model.png')
+    elif modeltype == 'FF':
+        model = get_feedforward_model(input_output[0], input_output[1], dropout, batch_n, optimizer)
+        print(model.summary())
+        plot_model(model, to_file='images/FF_model.png')
+    else:
+        raise ValueError('Not An Acceptable Model Type Sorry!')
 
-    return X_train, X_val, X_test, y_train, y_val, y_test, model
-
+    return model
 
 def generate_wave_graph(filename):
     file = './recordings/' + filename
@@ -124,7 +144,7 @@ def generate_graphs(filename):
     generate_mfcc_graph(filename)
     generate_spectogram(filename)
 
-def get_cnn_model(input_shape, num_classes, dropout = True, batch_n = True, MaxPooling = True, optimzer = keras.optimizers.Adam() ):
+def get_cnn_model(input_shape, num_classes, dropout = True, batch_n = True, maxpooling = True, optimizer = keras.optimizers.Adam() ):
     model = Sequential()
 
     model.add(Conv2D(32, kernel_size=(2, 2), activation='relu', input_shape=input_shape))
@@ -134,12 +154,15 @@ def get_cnn_model(input_shape, num_classes, dropout = True, batch_n = True, MaxP
     model.add(Conv2D(48, kernel_size=(2, 2), activation='relu'))
     if batch_n:
         model.add(BatchNormalization())
-
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-    if dropout:
-        model.add(Dropout(0.25))
+    if maxpooling:
+        model.add(MaxPooling2D(pool_size=(2, 2)))
 
     model.add(Flatten())
+    model.add(Dense(128, activation='relu'))
+    if batch_n:
+        model.add(BatchNormalization())
+    if dropout:
+        model.add(Dropout(0.25))
 
     model.add(Dense(64, activation='relu'))
     if batch_n:
@@ -147,54 +170,82 @@ def get_cnn_model(input_shape, num_classes, dropout = True, batch_n = True, MaxP
     if dropout:
         model.add(Dropout(0.4))
     model.add(Dense(num_classes, activation='softmax'))
-    model.compile(loss=keras.losses.categorical_crossentropy, optimizer=optimzer, metrics=['accuracy'])
+    model.compile(loss=keras.losses.categorical_crossentropy, optimizer=optimizer, metrics=['accuracy'])
 
     return model
 
-def get_feedforward_model(input_shape, num_classes):
+def get_feedforward_model(input_shape, num_classes, dropout = True, batch_n = True,  optimizer = keras.optimizers.Adam() ):
     model = Sequential()
+
     model.add(Dense(128, activation='relu', input_shape=input_shape))
+
     model.add(Flatten())
-    model.add(BatchNormalization())
-    model.add(Dropout(0.25))
+    if batch_n:
+        model.add(BatchNormalization())
+    if dropout:
+        model.add(Dropout(0.25))
     model.add(Dense(64, activation='relu'))
-    model.add(BatchNormalization())
-    model.add(Dropout(0.4))
+    if batch_n:
+        model.add(BatchNormalization())
+    if dropout:
+        model.add(Dropout(0.4))
+
+    model.add(Dense(64, activation='relu'))
+    if batch_n:
+        model.add(BatchNormalization())
+    if dropout:
+        model.add(Dropout(0.4))
+
     model.add(Dense(num_classes, activation='softmax'))
-    model.compile(loss=keras.losses.categorical_crossentropy, optimizer=keras.optimizers.Adadelta(),
+    model.compile(loss=keras.losses.categorical_crossentropy, optimizer = optimizer,
                   metrics=['accuracy'])
 
     return model
 
 def evaluate_model(model, test_X, test_y):
-    model = keras.models.load_model('best_model.h5')
-    print(model.evaluate(test_X, test_y))
+    model = keras.models.load_model(model)
+    predictions = model.predict_classes(test_X)
 
+    eval = model.evaluate(test_X, test_y)
+    print('Test Score: '  + str(eval[1]))
+    print(classification_report(test_y, to_categorical(predictions)))
+
+def plot_losses(history):
+    plt.plot(history.history['loss'])
+    plt.plot(history.history['val_loss'])
+    plt.title('Model accuracy')
+    plt.ylabel('Accuracy')
+    plt.xlabel('Epoch')
+    plt.legend(['Train', 'Validation'], loc='upper left')
+    plt.savefig('images/loss_curve.png')
+    plt.show()
 
 
 
 if __name__ == '__main__':
      print("Generating Graphs")
-     generate_wave_graph( '0_jackson_0.wav')
+     generate_wave_graph('0_jackson_0.wav')
      generate_spectogram('0_jackson_0.wav')
      generate_mfcc_graph('0_jackson_0.wav')
 
      print("Done")
-     X_train, X_val, X_test, y_train, y_val, y_test, model = prepare_data_model('./recordings/')
+     X_train, X_val, X_test, y_train, y_val, y_test, input_output = prepare_data('./recordings/')
 
-     print(model.summary())
+     model = prepare_model(input_output)
 
      keras_callback = keras.callbacks.TensorBoard(log_dir='./Graph', histogram_freq=1,
                                                   write_graph=True, write_images=True)
-     #EarlyStopping(monitor='val_loss', patience=2),
-     callbacks = [
-                  ModelCheckpoint(filepath='best_model.h5', monitor='val_loss', save_best_only=True), TensorBoard(log_dir='./Graph', histogram_freq=1,
+
+     callbacks = [ModelCheckpoint(filepath='models/model.h5', monitor='val_loss', save_best_only=True), TensorBoard(log_dir='./Graph', histogram_freq=1,
                                                   write_graph=False, write_images=False)]
 
-     model.fit(X_train, y_train, batch_size=250, epochs= 50, verbose= 2, validation_data = [X_val, y_val],
+     history = model.fit(X_train, y_train, batch_size=32, epochs=50, verbose= 2, validation_data = [X_val, y_val],
                    callbacks=callbacks)
 
-     evaluate_model('best_model.h5', X_test, y_test)
+     # Plot training & validation accuracy values
+     plot_losses(history)
+
+     evaluate_model('models/model.h5', X_test, y_test)
 
 
 
