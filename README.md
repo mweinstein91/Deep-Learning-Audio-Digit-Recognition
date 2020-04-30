@@ -6,3 +6,5 @@ utils.py: contains all the function definitions and different utilities used to 
 final_model.py: a script that when runs builds the final model used
 
 modelexplorationtuning.ipynb: the notebook that explains the tuning process
+
+Final_Deep_Learning_Project.pdf: The pdf containing the final report for the overall project

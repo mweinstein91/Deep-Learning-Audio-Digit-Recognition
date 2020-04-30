@@ -1,5 +1,5 @@
 import numpy as np
-#Note to run this script you need to run librosa
+#Note to run this script you need to run librosa version 0.6.3
 import librosa
 import os
 from keras.utils import to_categorical
@@ -15,15 +15,7 @@ from keras.callbacks import ModelCheckpoint, TensorBoard
 from keras.utils import plot_model
 from sklearn.metrics import classification_report
 
-
-class LossHistory(keras.callbacks.Callback):
-    def on_train_begin(self, logs={}):
-        self.losses = []
-
-    def on_batch_end(self, batch, logs={}):
-        batch_loss = logs.get('loss')
-        self.losses.append(batch_loss)
-
+#Function that converts a wav audio file into a padded mfcc
 def wav_to_mfcc(file_path, max_pad_len=20):
     wave, sr = librosa.load(file_path, mono=True, sr = None)
     wave = wave[::3]
@@ -32,6 +24,7 @@ def wav_to_mfcc(file_path, max_pad_len=20):
     mfcc = np.pad(mfcc, pad_width=((0, 0), (0, pad_width)), mode='constant')
     return mfcc
 
+#Function looks through every wav file in a certain folder, converts them to MFCCs then return the features and labels
 def get_data(folder):
     print("Fetching wav data from" + folder)
     labels = []
@@ -49,6 +42,7 @@ def get_data(folder):
     #print(np.array([np.hstack(i) for i in mfccs]))
     return np.asarray(mfccs), to_categorical(labels)
 
+#Splits mfcc data into training, validation, and testing sets
 def prepare_data(folder):
     print("Preparing Data")
     mfccs, labels = get_data(folder)
@@ -71,6 +65,7 @@ def prepare_data(folder):
 
     return X_train, X_val, X_test, y_train, y_val, y_test, input_output
 
+#Based on the parameters returns a compiled model with the desired characteristics
 def prepare_model(input_output, modeltype = 'CNN', dropout = True, batch_n = True, maxpooling = True, optimizer = keras.optimizers.Adam()):
     print("Creating Model")
     if modeltype == 'CNN':
@@ -86,6 +81,7 @@ def prepare_model(input_output, modeltype = 'CNN', dropout = True, batch_n = Tru
 
     return model
 
+#Generates wave graph based on an audio file
 def generate_wave_graph(filename):
     file = './recordings/' + filename
 
@@ -112,7 +108,7 @@ def generate_wave_graph(filename):
         plt.savefig('images/waveform' + filename + '.png')
         plt.show()
 
-
+#Generates a spectogram based on an audio file
 def generate_spectogram(filename):
     sound_info, frame_rate = get_wav_info('./recordings/' + filename)
     pylab.figure(num=None, figsize=(19, 12))
@@ -122,6 +118,7 @@ def generate_spectogram(filename):
     pylab.savefig('images/spectrogram' + filename + '.png')
     pylab.show()
 
+#Gets the info from a wave file
 def get_wav_info(filename):
     with wave.open(filename, 'r') as wav_file:
         frames = wav_file.readframes(-1)
@@ -129,6 +126,7 @@ def get_wav_info(filename):
         frame_rate = wav_file.getframerate()
     return sound_info, frame_rate
 
+#Generates an MFCC graph for a given wave file
 def generate_mfcc_graph(filename):
     (xf, sr) = librosa.load('./recordings/' + filename)
     mfccs = librosa.feature.mfcc(y=xf, sr=sr, n_mfcc=4)
@@ -139,11 +137,13 @@ def generate_mfcc_graph(filename):
     plt.savefig('images/mfcc' + filename + '.png')
     plt.show()
 
+#Generates all three graphs for one file
 def generate_graphs(filename):
     generate_wave_graph(filename)
     generate_mfcc_graph(filename)
     generate_spectogram(filename)
 
+#Creates and compiles a CNN based on desired hyperparameters
 def get_cnn_model(input_shape, num_classes, dropout = True, batch_n = True, maxpooling = True, optimizer = keras.optimizers.Adam() ):
     model = Sequential()
 
@@ -173,7 +173,7 @@ def get_cnn_model(input_shape, num_classes, dropout = True, batch_n = True, maxp
     model.compile(loss=keras.losses.categorical_crossentropy, optimizer=optimizer, metrics=['accuracy'])
 
     return model
-
+#Creates and compiles a Feedforward Network based on desired hyperparameters
 def get_feedforward_model(input_shape, num_classes, dropout = True, batch_n = True,  optimizer = keras.optimizers.Adam() ):
     model = Sequential()
 
@@ -202,6 +202,7 @@ def get_feedforward_model(input_shape, num_classes, dropout = True, batch_n = Tr
 
     return model
 
+#Returns a test score for a given model and test set and prints a classification report
 def evaluate_model(model, test_X, test_y):
     model = keras.models.load_model(model)
     predictions = model.predict_classes(test_X)
@@ -210,6 +211,7 @@ def evaluate_model(model, test_X, test_y):
     print('Test Score: '  + str(eval[1]))
     print(classification_report(test_y, to_categorical(predictions)))
 
+#Plots the loss history
 def plot_losses(history):
     plt.plot(history.history['loss'])
     plt.plot(history.history['val_loss'])
@@ -221,7 +223,7 @@ def plot_losses(history):
     plt.show()
 
 
-
+#main method that runs through a default run of the neural network
 if __name__ == '__main__':
      print("Generating Graphs")
      generate_wave_graph('0_jackson_0.wav')
